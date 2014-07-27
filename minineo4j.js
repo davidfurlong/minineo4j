@@ -99,9 +99,8 @@ Minineo4j.GraphIndex = function (name) {
 	self._graph = new Graph(); // TODO pass data to initialize
 	// fine-grained reactivity per key
 	// KEYS ARE NODE/REL IDS
-	self._keyDependencies = {};
-	self._relationshipDependencies = {};
-	self._indexDependencies = {};
+	// n + id or r + id
+	self._keyDependencies = {}
 	// originals saved in-between calls to saveOriginals and
 	// retrieveOriginals
 	self._savedOriginals = null;
@@ -331,7 +330,8 @@ _.extend(Minineo4j.GraphIndex.prototype, {
 	// map functions of GraphIndex to _graph
 	createNode:function(data) {
 		var self = this;
-		self._graph.createNode(data);
+		var n = self._graph.createNode(data);
+		self._set("n"+n.id, n);
 	},
 	getNodeById:function(id) {
 		var self = this;

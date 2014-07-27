@@ -197,14 +197,28 @@ var Graph,
   __hasProp = {}.hasOwnProperty;
 
 Graph = (function() {
-  function Graph() {
+  function Graph(nodes, edges, nodeindexes, edgeindexes) {
     // this is the graphs primary index
-    this._nodes = []; // indexed from 1
-    this._edges = []; // indexed from 1
-    this._nodeindexes = [];
-    this._edgeindexes = [];
-    this.nodeMaxIndex = 0;
-    this.edgeMaxIndex = 0;
+    this._nodes = nodes !== undefined ? nodes : []; // indexed from 1
+    this._edges = edges !== undefined ? edges : []; // indexed from 1
+    this._nodeindexes = nodeindexes !== undefined ? nodeindexes : [];
+    this._edgeindexes = edgeindexes !== undefined ? edgeindexes : [];
+    var nodeMaxIndex = 0;
+    if(nodeindexes !== undefined){
+      for(k in nodeindexes){
+        if(nodeindexes[k].id > nodeMaxIndex)
+          nodeMaxIndex = nodeindexes[k].id;
+      }
+    }
+    var edgeMaxIndex = 0;
+    if(edgeindexes !== undefined){
+      for(k in edgeindexes){
+        if(edgeindexes[k].id > edgeMaxIndex)
+          edgeMaxIndex = edgeindexes[k].id;
+      }
+    }
+    this.nodeMaxIndex = nodeMaxIndex;
+    this.edgeMaxIndex = edgeMaxIndex;
   }
 
   Graph.prototype.createNode = function(data) {
