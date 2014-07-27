@@ -38,17 +38,17 @@ var Edge = (function(id, inV, outV, type, graph){
   }
   Edge.prototype.index = function(index, key, value, _){
     // dubious
-    index.map += this;
-    this.data.key = value;
+    index.elements.push(this);
+    this.data[key] = value;
     _();
   }
   Edge.prototype.unindex = function(index, key, value, _){
     // dubious
     var index = array.indexOf(this);
     if (index > -1) {
-        index.map.splice(index, 1);
+        index.elements.splice(index, 1);
     }
-    delete this.data.key;
+    delete this.data[key];
     _();
   }
   Edge.prototype.del = function(cb){
@@ -97,24 +97,25 @@ var Node = (function(id, data, graph){
   }
   Node.prototype.index = function(index, key, value, cb) {
     // dubious?
-    index.map += this;
-    this.data.key = value;
+
+    index.elements.push(this);
+    this.data[key] = value;
     cb();
   }
   Node.prototype.unindex = function(index, key, value, cb) {
     // dubious?
     var index = array.indexOf(this);
     if (index > -1) {
-        index.map.splice(index, 1);
+        index.elements.splice(index, 1);
     }
-    delete this.data.key;
+    delete this.data[key];
     cb();
   }
   Node.prototype.createRelationshipTo = function(otherNode, type, data, cb) {
     var newEId = this.graph.generateEdgeId();
     var newE = new Edge(newEId,this, otherNode, type)
     newE.data = data;
-    this.edgesOut += newE;
+    this.edgesOut.push(newE);
     this.graph._edges[newEId] = newE;
     cb(newE);
   }
@@ -122,7 +123,7 @@ var Node = (function(id, data, graph){
     var newEId = this.graph.generateEdgeId();
     var newE = new Edge(newEId, otherNode, this, type)
     newE.data = data;
-    this.edgesIn += newE;
+    this.edgesIn.push(newE);
     this.graph._edges[newEId] = newE;
     cb(newE);
   }
@@ -130,11 +131,11 @@ var Node = (function(id, data, graph){
     var matches = [];
     for(k in this.edgesIn){
       if(this.edgesIn[k].type == type)
-        matches += this.edgesIn[k];
+        matches.push(this.edgesIn[k]);
     }
     for(k in this.edgesOut){
       if(this.edgesIn[k].type == type)
-        matches += this.edgesIn[k];
+        matches.push(this.edgesIn[k]);
     }
     cb(matches);
   }
@@ -142,7 +143,7 @@ var Node = (function(id, data, graph){
     var matches = [];
     for(k in this.edgesOut){
       if(this.edgesOut[k].type == type)
-        matches += this.edgesOut[k];
+        matches.push(this.edgesOut[k]);
     }
     cb(matches);
   }
@@ -150,7 +151,7 @@ var Node = (function(id, data, graph){
     var matches = [];
     for(k in this.edgesIn){
       if(this.edgesIn[k].type == type)
-        matches += this.edgesIn[k];
+        matches.push(this.edgesIn[k]);
     }
     cb(matches);
   }
@@ -252,7 +253,7 @@ Graph = (function() {
   Graph.prototype.createNodeIndex = function (name, config, cb) {
     // ignores "config" which has default {}
     var i = new Index(name, this);
-    this._nodeindexes += i;
+    this._nodeindexes.push(i);
     cb(i);
   }
 
@@ -275,7 +276,7 @@ Graph = (function() {
   Graph.prototype.createRelationshipIndex = function (name, config, cb) {
     // ignores "config" which has default {}  
     var i = new Index(name, this);
-    this._edgeindexes += i;
+    this._edgeindexes.push(i);
     cb(i);
   }
 
@@ -291,19 +292,21 @@ Graph = (function() {
   }
 
   Graph.prototype.fromJSON = function (obj) {
-    
+
   }
 
   Graph.prototype.reviveJSON = function (key, val) {
 
   }
 
-  Graph.prototype.query = function (query, params = {}, cb) {
-
+  Graph.prototype.query = function (query, params, cb) {
+    // params defaults to {}
   }
 
-  Graph.prototype.execute = function (execute, params = {}, cb) {
+  Graph.prototype.execute = function (execute, params, cb) {
     // not going to be implemented, realistically.
+    // params defaults to {}
+
   }
 
   Graph.prototype.generateEdgeId = function() {

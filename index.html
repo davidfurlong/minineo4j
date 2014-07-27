@@ -1,7 +1,20 @@
 <html>
 <head>
+<script src="lucene-query-parser.js"></script>
 <script src="graphdatabase.js"></script>
+<script src="http://code.jquery.com/jquery-1.11.1.min.js"></script>
 </head>
 <body>
+<script>
+var x = new Graph();
+x.createNode({'name':'David', 'age':20});
+x.createNodeIndex("people", {}, function(y){window.y = y});
+var p = x.getNodeById(1);
+p.index(window.y, "sweet", "value", function(){return;});
+console.log(x);
+
+var results = LuceneParser.parse('title:"The Right Way" AND text:go');
+console.log(results);
+</script>
 </body>
 </html>
