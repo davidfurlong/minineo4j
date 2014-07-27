@@ -3,6 +3,18 @@
 // Issue equals is a javascript reserved keyword we use eq instead
 // Collection = Index
 
+var Path = (function(start, end, length, nodes, relationships, graph){
+  function Path(start, end, length, nodes, relationships, graph){
+    this.start = start;
+    this.end = end;
+    this.length = length;
+    this.nodes = nodes;
+    this.relationships = relationships;
+    this.graph = graph;
+  }
+  return Path;
+})();
+
 var Index = (function(name, graph){
   // “An Index —maps from→ Properties —to either→ Nodes or Relationships”
   function Index(name, graph){

@@ -17,19 +17,77 @@ var throwNotImplementedError = function (cb) {
 	callInCallbackOrThrow(err, cb);
 };
 
+var translateToOrderedCallbacks = function (orderedCallbacks) {
+  var queryResult = [];
+  return {
+    added: function (doc) {
+      var pos = insPos(queryResult, doc._id);
+      var before = pos === queryResult.length ? null : queryResult[pos];
+      queryResult.splice(pos, 0, doc._id);
+      orderedCallbacks.addedAt && orderedCallbacks.addedAt(doc, pos, before);
+    },
+    changed: function (newDoc, oldDoc) {
+      var pos = insPos(queryResult, newDoc._id) - 1;
+      orderedCallbacks.changedAt && orderedCallbacks.changedAt(newDoc, oldDoc, pos);
+    },
+    removed: function (doc) {
+      var pos = insPos(queryResult, doc._id) - 1;
+      queryResult.splice(pos, 1);
+      orderedCallbacks.removedAt && orderedCallbacks.removedAt(doc, pos);
+    }
+  };
+};
+
+var translateToChangesCallbacks = function (changesCallbacks) {
+  var newCallbacks = {};
+
+  if (changesCallbacks.added)
+    newCallbacks.added = function (doc) {
+      var id = doc._id;
+      delete doc._id;
+      changesCallbacks.added(id, doc);
+    };
+  if (changesCallbacks.addedAt)
+    newCallbacks.addedAt = function (doc, atIndex, before) {
+      var id = doc._id;
+      delete doc._id;
+      changesCallbacks.addedBefore(id, doc, before);
+    };
+
+  var changedCallback = function (newDoc, oldDoc) {
+    var id = newDoc._id;
+    delete newDoc._id;
+    // effectively the diff document is just {value} doc, as there is always
+    // a single top-level field with the value
+    changesCallbacks.changed(id, newDoc);
+  };
+  if (changesCallbacks.changed)
+    newCallbacks.changed = changedCallback;
+  if (changesCallbacks.changedAt)
+    newCallbacks.changedAt = changedCallback;
+
+  var removedCallback = function (doc) {
+    changesCallbacks.removed(doc._id);
+  };
+  if (changesCallbacks.removed)
+    newCallbacks.removed = removedCallback;
+  if (changesCallbacks.removedAt)
+    newCallbacks.removedAt = removedCallback;
+
+  return newCallbacks;
+};
 
 // an index
-Minineo4j.Cursor = function (GraphIndex) {
+Minineo4j.Cursor = function (graphIndex) {
 	var self = this;
 	self.graphIndex = graphIndex;
 };
 
-Minineo4j.unsupportedMethods = ["execute", "query", "reviveJSON", "fromJSON"];
+Minineo4j.unsupportedMethods = ["execute", "query", "reviveJSON", "fromJSON", "queryNodeIndex"];
 
 _.each(Minineo4j.unsupportedMethods, function (method) {
-	Minineo4j.graphStore.prototype[method] = throwNotImplementedError;
+	Minineo4j.GraphIndex.prototype[method] = throwNotImplementedError;
 });
-
 
 // A main store class
 Minineo4j.GraphIndex = function (name) {
@@ -40,9 +98,10 @@ Minineo4j.GraphIndex = function (name) {
 	// main key-value storage
 	self._graph = new Graph(); // TODO pass data to initialize
 	// fine-grained reactivity per key
+	// KEYS ARE NODE/REL IDS
 	self._keyDependencies = {};
-	// fine-grained reactivity per non-trivial pattern
-	self._patternDependencies = {};
+	self._relationshipDependencies = {};
+	self._indexDependencies = {};
 	// originals saved in-between calls to saveOriginals and
 	// retrieveOriginals
 	self._savedOriginals = null;
@@ -95,15 +154,15 @@ _.extend(Minineo4j.Cursor.prototype, {
 	// probably wrong
 	forEach: function(callbacks) {
 		var self = this;
-		return self.GraphIndex.forEach(callbacks);
+		return self.graphIndex.forEach(callbacks);
 	},
 	map: function(callbacks) {
 		var self = this;
-		return self.GraphIndex.map(callbacks);
+		return self.graphIndex.map(callbacks);
 	},
 	fetch: function () {
 		var self = this;
-		return self.GraphIndex.elements;
+		return self.graphIndex.elements;
 	},
 	count: function () {
 		var self = this;
@@ -168,3 +227,154 @@ var callInCallbackOrThrow = function (err, cb) {
 var maybePopCallback = function (args) {
   return _.isFunction(_.last(args)) ? args.pop() : undefined;
 };
+
+_.extend(Minineo4j.GraphIndex.prototype, {
+	// -----
+	// convinience wrappers
+	// -----
+	_keyDep: function (key) {
+	  var self = this;
+
+	  if (! self._keyDependencies[key])
+	    self._keyDependencies[key] = new Deps.Dependency();
+
+	  if (Deps.active) {
+	    // for future clean-up
+	    Deps.onInvalidate(function () {
+	      self._tryCleanUpKeyDep(key);
+	    });
+	  }
+
+	  return self._keyDependencies[key];
+	},
+	_has: function (key) {
+	  var self = this;
+	  self._keyDep(key).depend();
+	  return self._kv.has(key);
+	},
+	_get: function (key) {
+	  var self = this;
+	  self._keyDep(key).depend();
+	  return self._kv.get(key);
+	},
+	_set: function (key, value) {
+	  var self = this;
+	  var oldValue = self._kv.has(key) ? self._kv.get(key) : undefined;
+	  self._kv.set(key, value);
+
+	  self._saveOriginal(key, oldValue);
+	  if (!self.paused && oldValue !== value) {
+	    if (oldValue === undefined) {
+	      self._notifyObserves(key, 'added', value);
+	    } else {
+	      self._notifyObserves(key, 'changed', value, oldValue);
+	    }
+	  }
+	},
+
+	_remove: function (key) {
+	  var self = this;
+	  if (! self._kv.has(key))
+	    return;
+	  var oldValue = self._kv.get(key);
+	  self._saveOriginal(key, oldValue);
+	  self._kv.remove(key);
+	  if (!self.paused)
+	    self._notifyObserves(key, 'removed', oldValue);
+	},
+
+	_tryCleanUpKeyDep: function (key) {
+	  var self = this;
+	  if (self._keyDependencies[key] && ! self._keyDependencies[key].hasDependents())
+	    delete self._keyDependencies[key];
+	},
+
+	_notifyObserves: function (key, event, value, oldValue) {
+	  var self = this;
+
+	  self._keyDep(key).changed();
+	  if (event === "removed") {
+	    self._tryCleanUpKeyDep(key);
+	  }
+
+	  if (event !== "changed") {
+	    _.each(self._patternDependencies, function (dep, pattern) {
+	      if (key.match(patternToRegexp(pattern))) {
+	        dep.changed();
+	      }
+	    });
+	  }
+
+	  _.each(self.observes, function (obs) {
+	    if (! key.match(patternToRegexp(obs.pattern)))
+	      return;
+	    if (event === "changed") {
+	      obs[event] && obs[event]({ _id: key, value: value },
+	                               { _id: key, value: oldValue });
+	    } else {
+	      obs[event] && obs[event]({ _id: key, value: value });
+	    }
+	  });
+	},
+
+	_drop: function () {
+	  var self = this;
+	  self._kv.forEach(function (value, key) {
+	    self._remove(key);
+	  });
+	},
+
+	// -----
+	// main interface built on top of Node-neo4j
+	// -----
+
+	// map functions of GraphIndex to _graph
+	createNode:function(data) {
+		var self = this;
+		self._graph.createNode(data);
+	},
+	getNodeById:function(id) {
+		var self = this;
+		self._graph.getNodeById(id);
+	},
+	getIndexedNode:function(index, property, value, cb){
+		var self = this;
+		self._graph.getIndexedNode(index, property, value, cb);
+	},
+	getIndexedNodes:function(index, property, value, cb){
+		var self = this;
+		self._graph.getIndexedNodes(index, property, value, cb);
+	},
+	getRelationshipById:function(id){
+		var self = this;
+		self._graph.getRelationshipById(id);
+	},
+	getIndexedRelationship:function(index, property, value, cb){
+		var self = this;
+		self._graph.getIndexedRelationship(index, property, value, cb);
+	},
+	getNodeIndex:function(cb){
+		var self = this;
+		self._graph.getNodeIndex(cb);
+	},
+	createNodeIndex:function(name, config, cb){
+		var self = this;
+		self._graph.createNodeIndex(name, config, cb);
+	},
+	deleteNodeIndex:function(name, cb){
+		var self = this;
+		self._graph.deleteNodeIndex(name, cb);
+	},
+	getRelationshipIndexes:function(cb){
+		var self = this;
+		self._graph.getRelationshipIndexes(cb);
+	},
+	createRelationshipIndex:function(name, config, cb){
+		var self = this;
+		self._graph.createRelationshipIndex(name, config, cb);
+	},
+	deleteRelationshipIndex:function(name, cb){
+		var self = this;
+		self._graph.deleteRelationshipIndex(name, cb);
+	}
+});
