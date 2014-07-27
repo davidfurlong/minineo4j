@@ -17,6 +17,20 @@ var throwNotImplementedError = function (cb) {
 	callInCallbackOrThrow(err, cb);
 };
 
+// returns the position where x should be inserted in a sorted array
+var insPos = function (arr, x) {
+  var l = 0, r = arr.length - 1;
+  while (l <= r) {
+    var m = (l + r) >> 1;
+    if (arr[m] <= x)
+      l = m + 1;
+    else
+      r = m - 1;
+  }
+
+  return l;
+};
+
 var translateToOrderedCallbacks = function (orderedCallbacks) {
   var queryResult = [];
   return {
@@ -229,7 +243,7 @@ var maybePopCallback = function (args) {
 
 _.extend(Minineo4j.GraphIndex.prototype, {
 	// -----
-	// convinience wrappers
+	// convenience wrappers
 	// -----
 	_keyDep: function (key) {
 	  var self = this;
@@ -249,17 +263,33 @@ _.extend(Minineo4j.GraphIndex.prototype, {
 	_has: function (key) {
 	  var self = this;
 	  self._keyDep(key).depend();
-	  return self._kv.has(key);
+	  if(key.substr(0,1) == "n"){
+	  	return (-1 != self._graph._nodes.indexOf(key.splice(0,1)));
+	  }
+	  else {
+	  	return (-1 != self._graph._edges.indexOf(key.splice(0,1)));
+	  }
+	  
 	},
 	_get: function (key) {
 	  var self = this;
 	  self._keyDep(key).depend();
-	  return self._kv.get(key);
+	  if(key.substr(0,1) == "n"){
+	  	return (-1 != self._graph._nodes[key.splice(0,1)]);
+	  }
+	  else {
+	  	return (-1 != self._graph._edges[key.splice(0,1)]);
+	  }
+	},
+	_tryCleanUpKeyDep: function (key) {
+	  var self = this;
+	  if (self._keyDependencies[key] && ! self._keyDependencies[key].hasDependents())
+	    delete self._keyDependencies[key];
 	},
 	_set: function (key, value) {
 	  var self = this;
-	  var oldValue = self._kv.has(key) ? self._kv.get(key) : undefined;
-	  self._kv.set(key, value);
+	  var oldValue = self._has(key) ? self._get(key) : undefined;
+	  self._keyDependencies[key] =  value;
 
 	  self._saveOriginal(key, oldValue);
 	  if (!self.paused && oldValue !== value) {
@@ -271,24 +301,8 @@ _.extend(Minineo4j.GraphIndex.prototype, {
 	  }
 	},
 
-	_remove: function (key) {
-	  var self = this;
-	  if (! self._kv.has(key))
-	    return;
-	  var oldValue = self._kv.get(key);
-	  self._saveOriginal(key, oldValue);
-	  self._kv.remove(key);
-	  if (!self.paused)
-	    self._notifyObserves(key, 'removed', oldValue);
-	},
-
-	_tryCleanUpKeyDep: function (key) {
-	  var self = this;
-	  if (self._keyDependencies[key] && ! self._keyDependencies[key].hasDependents())
-	    delete self._keyDependencies[key];
-	},
-
 	_notifyObserves: function (key, event, value, oldValue) {
+		// matches all without pattern
 	  var self = this;
 
 	  self._keyDep(key).changed();
@@ -297,16 +311,12 @@ _.extend(Minineo4j.GraphIndex.prototype, {
 	  }
 
 	  if (event !== "changed") {
-	    _.each(self._patternDependencies, function (dep, pattern) {
-	      if (key.match(patternToRegexp(pattern))) {
+	    _.each(self._keyDependencies, function (dep) {
 	        dep.changed();
-	      }
 	    });
 	  }
 
 	  _.each(self.observes, function (obs) {
-	    if (! key.match(patternToRegexp(obs.pattern)))
-	      return;
 	    if (event === "changed") {
 	      obs[event] && obs[event]({ _id: key, value: value },
 	                               { _id: key, value: oldValue });
@@ -318,9 +328,46 @@ _.extend(Minineo4j.GraphIndex.prototype, {
 
 	_drop: function () {
 	  var self = this;
-	  self._kv.forEach(function (value, key) {
-	    self._remove(key);
+	  self._graph._nodes.forEach(function (n) {
+	    n.del();
 	  });
+	  self._graph._edges.forEach(function (e) {
+	    e.del();
+	  });
+	},
+
+	// Returns a Cursor
+	matching: function () {
+	  var self = this;
+	  var c = new Miniredis.Cursor(self);
+	  return c;
+	},
+
+	// -----
+	// implementing the contract of a data store
+	// -----
+	saveOriginals: function () {
+	  var self = this;
+	  if (self._savedOriginals)
+	    throw new Error("Called saveOriginals twice without retrieveOriginals");
+	  self._savedOriginals = new Graph();
+	},
+
+	retrieveOriginals: function () {
+	  var self = this;
+	  if (!self._savedOriginals)
+	    throw new Error("Called retrieveOriginals without saveOriginals");
+
+	  var originals = self._savedOriginals;
+	  self._savedOriginals = null;
+	  return originals;
+	},
+
+	_saveOriginal: function (key, value) {
+	  // var self = this;
+	  // if (! self._savedOriginals || self._savedOriginals.has(key))
+	  //   return;
+	  // self._savedOriginals.set(key, value && { _id: key, value: value }); // XXX need to deep clone value?
 	},
 
 	// -----
@@ -332,10 +379,13 @@ _.extend(Minineo4j.GraphIndex.prototype, {
 		var self = this;
 		var n = self._graph.createNode(data);
 		self._set("n"+n.id, n);
+		return n;
 	},
 	getNodeById:function(id) {
 		var self = this;
-		self._graph.getNodeById(id);
+		var n = self._graph.getNodeById(id);
+		self._set("n"+n.id, n);
+		return n;
 	},
 	getIndexedNode:function(index, property, value, cb){
 		var self = this;

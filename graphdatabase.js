@@ -1,22 +1,20 @@
 // Graph DB in memory following the neo4j-node specs
-// Todo Paths
-// Issue equals is a javascript reserved keyword we use eq instead
-// Collection = Index
 
 var Path = (function(start, end, length, nodes, relationships){
   function Path(start, end, length, nodes, relationships){
     this.start = start;
     this.end = end;
-    this.length = length;
+    this.len = length;
     this.nodes = nodes;
     this.relationships = relationships;
   }
+
   return Path;
 })();
 
 var Index = (function(name){
   // “An Index —maps from→ Properties —to either→ Nodes or Relationships”
-  function Index(name, graph){
+  function Index(name){
     this.elements = []; // elements are either Nodes or relationships
     this.name = name;
     this.exists = true;
@@ -25,13 +23,11 @@ var Index = (function(name){
   Index.prototype.del = function() {
     this.exists = false;
   }
-
   Index.prototype.forEach = function(cb) {
     for(k in this.elements){
       cb(this.elements[k]);
     }
   }
-
   Index.prototype.map = function(cb) {
     for(k in this.elements){
       cb(this.elements[k]);
@@ -136,6 +132,8 @@ var Node = (function(id, data, graph){
   }
   Node.prototype.del = function(cb) {
     this.exists = false;
+    this.graph._nodes[this.id] = null;
+
     cb();
     // need to delete references in Relationships & relationships between this node & another
     // need to delete reference in graph
@@ -216,11 +214,21 @@ var Node = (function(id, data, graph){
   Node.prototype.getRelationshipNodes = function(rels, cb){
     // todo options for rels are complex
   }
-  Node.prototype.path = function(to, type, direction, maxDepth, algorithm, cb){
-    maxDepth = typeof maxDepth !== 'undefined' ? maxDepth : 1;
-    algorithm = typeof algorithm !== 'undefined' ? algorithm : 'shortestPath';
-    // todo lots of work
-  }
+  // Node.prototype.path = function(to, type, direction, maxDepth, algorithm, cb){
+  //   maxDepth = typeof maxDepth !== 'undefined' ? maxDepth : 1;
+  //   algorithm = typeof algorithm !== 'undefined' ? algorithm : 'shortestPath';
+  //   // todo lots of work
+
+  //   if(algorithm == 'shortestPath'){
+  //     var s = new Path(this, this, 0,[this],[]);
+  //     console.log(s);
+  //     return this.graph.BFS(s, to);
+  //   }
+  //   else if(algorithm == 'any'){
+
+  //   }
+  //   return -1;
+  // }
 
   return Node;
 })();
@@ -260,7 +268,29 @@ Graph = (function() {
     return newN;
   }
 
+  Graph.prototype.BFS = function(path, destNode){
+    for (k in path.end.edgesOut){
+      var nextN = path.end.edgesOut[k].end;
+      var n = path.nodes;
+      var r = path.relationships;
+      c.push(nextN);
+      r.push(path.end.edgesOut[k]);
+      var p = new Path(path.start, nextN, path.len+1, c, r);
+      if(nextN.id == destNode.id){
+        return p;
+      }
+      else if(path.nodes.indexOf(nextN) == -1){
+        return this.BFS(p, destNode);
+      }
+    }
+    return -1; 
+  }
+
   Graph.prototype.getNodeById = Graph.prototype.getNode = function(id) {
+    if(this._nodes[id] === undefined){
+      console.error('Id is undefined');
+      return;
+    }
     return this._nodes[id];
   }
 
@@ -324,7 +354,7 @@ Graph = (function() {
 
   Graph.prototype.createNodeIndex = function (name, config, cb) {
     // ignores "config" which has default {}
-    var i = new Index(name, this);
+    var i = new Index(name);
     this._nodeindexes.push(i);
     cb(i);
   }
@@ -364,7 +394,7 @@ Graph = (function() {
   }
 
   Graph.prototype.fromJSON = function (obj) {
-    if(obj.type == "node"){
+    if(obj.start === undefined){
       return this.getNodeById(obj.id);
     }
     else {
@@ -373,17 +403,18 @@ Graph = (function() {
   }
 
   Graph.prototype.reviveJSON = function (key, val) {
-    
+    // todo
   }
 
   Graph.prototype.query = function (query, params, cb) {
     // params defaults to {}
+    // todo
   }
 
   Graph.prototype.execute = function (execute, params, cb) {
     // not going to be implemented, realistically.
     // params defaults to {}
-
+    // todo
   }
 
   Graph.prototype.generateEdgeId = function() {
