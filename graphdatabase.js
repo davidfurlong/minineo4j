@@ -3,24 +3,22 @@
 // Issue equals is a javascript reserved keyword we use eq instead
 // Collection = Index
 
-var Path = (function(start, end, length, nodes, relationships, graph){
-  function Path(start, end, length, nodes, relationships, graph){
+var Path = (function(start, end, length, nodes, relationships){
+  function Path(start, end, length, nodes, relationships){
     this.start = start;
     this.end = end;
     this.length = length;
     this.nodes = nodes;
     this.relationships = relationships;
-    this.graph = graph;
   }
   return Path;
 })();
 
-var Index = (function(name, graph){
+var Index = (function(name){
   // “An Index —maps from→ Properties —to either→ Nodes or Relationships”
   function Index(name, graph){
     this.elements = []; // elements are either Nodes or relationships
     this.name = name;
-    this.graph = graph;
     this.exists = true;
   }
 
@@ -57,7 +55,14 @@ var Edge = (function(id, inV, outV, type, graph){
   }
 
   Edge.prototype.toString = function(){
-    return JSON.stringify(this);
+    var temp = {};
+    temp.data = this.data;
+    temp.id = this.id;
+    temp.start = this.start.id;
+    temp.end = this.end.id;
+    temp.type = this.type;
+    temp.exists = this.exists;
+    return JSON.stringify(temp);
   }
   Edge.prototype.save = function(_){
     return this;
@@ -82,7 +87,14 @@ var Edge = (function(id, inV, outV, type, graph){
     cb();
   }
   Edge.prototype.toJSON = function(){
-    return JSON.parse(this);
+    var temp = {};
+    temp.data = this.data;
+    temp.id = this.id;
+    temp.start = this.start.id;
+    temp.end = this.end.id;
+    temp.type = this.type;
+    temp.exists = this.exists;
+    return JSON.parse(temp);
   }
   Edge.prototype.equals = function(other){
     return this.id == other.id;
@@ -103,7 +115,17 @@ var Node = (function(id, data, graph){
   }
 
   Node.prototype.toString = function(){
-    return JSON.stringify(this);
+    var temp = {};
+    temp.data = this.data;
+    temp.id = this.id;
+    temp.exists = this.exists;
+    temp.edgesOut = this.edgesOut.map(function(k){
+      return k.id;
+    });
+    temp.edgesIn = this.edgesIn.map(function(k){
+      return k.id;
+    });
+    return JSON.stringify(temp);
   }
   Node.prototype.equals = function(other){
     return this.id == other.id && this.data == other.data && this.exists == other.exists && this.edgesOut == other.edgesOut && this.edgesIn == other.edgesIn && this.graph == other.graph
@@ -119,7 +141,17 @@ var Node = (function(id, data, graph){
     // need to delete reference in graph
   }
   Node.prototype.toJSON = function(){
-    return JSON.parse(this);
+    var temp = {};
+    temp.data = this.data;
+    temp.id = this.id;
+    temp.exists = this.exists;
+    temp.edgesOut = this.edgesOut.map(function(k){
+      return k.id;
+    });
+    temp.edgesIn = this.edgesIn.map(function(k){
+      return k.id;
+    });
+    return JSON.parse(temp);
   }
   Node.prototype.index = function(index, key, value, cb) {
     // dubious?
@@ -139,7 +171,7 @@ var Node = (function(id, data, graph){
   }
   Node.prototype.createRelationshipTo = function(otherNode, type, data, cb) {
     var newEId = this.graph.generateEdgeId();
-    var newE = new Edge(newEId,this, otherNode, type)
+    var newE = new Edge(newEId,this, otherNode, type, this.graph)
     newE.data = data;
     this.edgesOut.push(newE);
     this.graph._edges[newEId] = newE;
@@ -147,7 +179,7 @@ var Node = (function(id, data, graph){
   }
   Node.prototype.createRelationshipFrom = function(otherNode, type, data, cb) {
     var newEId = this.graph.generateEdgeId();
-    var newE = new Edge(newEId, otherNode, this, type)
+    var newE = new Edge(newEId, otherNode, this, type, this.graph)
     newE.data = data;
     this.edgesIn.push(newE);
     this.graph._edges[newEId] = newE;
@@ -332,11 +364,16 @@ Graph = (function() {
   }
 
   Graph.prototype.fromJSON = function (obj) {
-
+    if(obj.type == "node"){
+      return this.getNodeById(obj.id);
+    }
+    else {
+      return this.getRelationshipById(obj.id);
+    }
   }
 
   Graph.prototype.reviveJSON = function (key, val) {
-
+    
   }
 
   Graph.prototype.query = function (query, params, cb) {
