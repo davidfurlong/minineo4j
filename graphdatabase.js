@@ -1,6 +1,7 @@
 // Graph DB in memory following the neo4j-node specs
 // Todo Paths
 // Issue equals is a javascript reserved keyword we use eq instead
+// Collection = Index
 
 var Index = (function(name, graph){
   // “An Index —maps from→ Properties —to either→ Nodes or Relationships”
@@ -13,6 +14,19 @@ var Index = (function(name, graph){
 
   Index.prototype.del = function() {
     this.exists = false;
+  }
+
+  Index.prototype.forEach = function(cb) {
+    for(k in this.elements){
+      cb(this.elements[k]);
+    }
+  }
+
+  Index.prototype.map = function(cb) {
+    for(k in this.elements){
+      cb(this.elements[k]);
+    }
+    return this.elements;
   }
 
   return Index;
