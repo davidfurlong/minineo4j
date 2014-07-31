@@ -1,4 +1,15 @@
 // Graph DB in memory following the neo4j-node specs
+/*
+
+Todos:
+
+Garbage Collection
+Implement cypher and gremlin queries
+
+*/
+
+
+var __hasProp = {}.hasOwnProperty;
 
 var Path = (function(start, end, length, nodes, relationships){
   function Path(start, end, length, nodes, relationships){
@@ -58,6 +69,17 @@ var Edge = (function(id, inV, outV, type, graph){
     temp.end = this.end.id;
     temp.type = this.type;
     temp.exists = this.exists;
+
+    // seen = []
+
+    // JSON.stringify(obj, function(key, val) {
+    //    if (val != null && typeof val == "object") {
+    //         if (seen.indexOf(val) >= 0)
+    //             return
+    //         seen.push(val)
+    //     }
+    //     return val
+    // })
     return JSON.stringify(temp);
   }
   Edge.prototype.save = function(_){
@@ -151,6 +173,12 @@ var Node = (function(id, data, graph){
     });
     return JSON.parse(temp);
   }
+  Node.prototype.matchesFilter = function(filter, cb) {
+    if(!this.exists)
+      return false;
+    return filter(this.data);
+  }
+
   Node.prototype.index = function(index, key, value, cb) {
     // dubious?
 
@@ -184,6 +212,7 @@ var Node = (function(id, data, graph){
     cb(newE);
   }
   Node.prototype.getRelationships = Node.prototype.all = function(type, cb){
+    // todo use the below two methods instead
     var matches = [];
     for(k in this.edgesIn){
       if(this.edgesIn[k].type == type)
@@ -194,6 +223,25 @@ var Node = (function(id, data, graph){
         matches.push(this.edgesIn[k]);
     }
     cb(matches);
+    return matches;
+  }
+  Node.prototype.getRelationshipsOut = function(type, cb){
+    var matches = [];
+    for(k in this.edgesOut){
+      if(this.edgesIn[k].type == type)
+        matches.push(this.edgesIn[k]);
+    }
+    cb(matches);
+    return matches;
+  }
+  Node.prototype.getRelationshipsIn = function(type, cb){
+    var matches = [];
+    for(k in this.edgesIn){
+      if(this.edgesIn[k].type == type)
+        matches.push(this.edgesIn[k]);
+    }
+    cb(matches);
+    return matches;
   }
   Node.prototype.outgoing = function(type, cb){
     var matches = [];
@@ -211,24 +259,82 @@ var Node = (function(id, data, graph){
     }
     cb(matches);
   }
+  // todo test this
   Node.prototype.getRelationshipNodes = function(rels, cb){
-    // todo options for rels are complex
+    if(typeof rels == 'string'){ // string
+      // types
+      this.getRelationships(rels, cb);
+    }
+    else if(typeof rels == 'object' && typeof rels[0] == 'string'){ // array of strings
+      // types
+      cb(rels.map(function(el){
+        return this.getRelationships(el, function(e){return});
+      }));
+    }
+    else if(typeof rels == 'object' && typeof rels[0] == 'undefined'){ // object
+      if(!rels.hasOwnProperty('type')){
+        console.error('Type of relation is required to search');
+        return;
+      }
+      if(rels.hasOwnProperty('direction')){
+        if(rels.direction == 'in'){
+          this.getRelationshipsIn(rels.type, cb);
+        }
+        else if(rels.direction == 'out'){
+          this.getRelationshipsOut(rels.type, cb);
+        }
+        else {
+          console.error('Direction of relation search specified is invalid use "in" or "out"');
+        }
+      }
+      else {
+        this.getRelationships(rels.type, cb);
+      }
+    }
+    else if(typeof rels == 'object' && typeof rels[0] == 'object'){ // array of objects
+      cb(rels.map(function(el, i){
+        console.log()
+        if(!rels.hasOwnProperty('type')){
+          console.error('Type of relation is required to search');
+          return;
+        }
+        if(el.hasOwnProperty('direction')){
+          if(el.direction == 'in'){
+            return this.getRelationshipsIn(el.type, function(a){return});
+          }
+          else if(el.direction == 'out'){
+            return this.getRelationshipsOut(el.type, function(a){return});
+          }
+          else {
+            console.error('Direction of relation search specified is invalid use "in" or "out"');
+          }
+        }
+        else {
+          return this.getRelationships(el.type, function(a){return});
+        }
+      }));
+    }
   }
-  // Node.prototype.path = function(to, type, direction, maxDepth, algorithm, cb){
-  //   maxDepth = typeof maxDepth !== 'undefined' ? maxDepth : 1;
-  //   algorithm = typeof algorithm !== 'undefined' ? algorithm : 'shortestPath';
-  //   // todo lots of work
+  Node.prototype.path = function(to, type, direction, maxDepth, algorithm, cb){
+    maxDepth = typeof maxDepth !== 'undefined' ? maxDepth : 1;
+    algorithm = typeof algorithm !== 'undefined' ? algorithm : 'shortestPath';
 
-  //   if(algorithm == 'shortestPath'){
-  //     var s = new Path(this, this, 0,[this],[]);
-  //     console.log(s);
-  //     return this.graph.BFS(s, to);
-  //   }
-  //   else if(algorithm == 'any'){
+    if(algorithm == 'DFS'){
+      var s = new Path(this, this, 0,[this],[]);
+      return this.graph.DFS(s, to);
+    }
+    else if(algorithm == 'shortestPath'){
 
-  //   }
-  //   return -1;
-  // }
+    }
+    else if(algorithm == 'BFS'){
+
+    }
+    else {
+      console.error('This algorithm is unsupported. Supported are "DFS", "BFS" and "shortestPath" Feel free to add it and PR');
+      return;
+    }
+    return;
+  }
 
   return Node;
 })();
@@ -268,22 +374,76 @@ Graph = (function() {
     return newN;
   }
 
-  Graph.prototype.BFS = function(path, destNode){
+  // Only allows traversal from relationship source to target
+  Graph.prototype.DFS = function(path, destNode) {
     for (k in path.end.edgesOut){
       var nextN = path.end.edgesOut[k].end;
-      var n = path.nodes;
-      var r = path.relationships;
-      c.push(nextN);
+      var n = path.nodes.slice(0);
+      var r = path.relationships.slice(0);
+      n.push(nextN);
       r.push(path.end.edgesOut[k]);
-      var p = new Path(path.start, nextN, path.len+1, c, r);
+      var p = new Path(path.start, nextN, path.len+1, n, r);
       if(nextN.id == destNode.id){
+        console.log('FOUND');
         return p;
       }
       else if(path.nodes.indexOf(nextN) == -1){
-        return this.BFS(p, destNode);
+        console.log('SEARCHING'+p+destNode)
+        return this.DFS(p, destNode);
       }
     }
+    console.log('DFS was unsuccessful');
     return -1; 
+  }
+
+  Graph.prototype.shortestPath = function() {
+
+  }
+
+  // todo test
+  Graph.prototype.DFSUndirected = function() {
+      for (k in path.end.edgesOut){
+        var nextN = path.end.edgesOut[k].end;
+        var n = path.nodes.slice(0);
+        var r = path.relationships.slice(0);
+        n.push(nextN);
+        r.push(path.end.edgesOut[k]);
+        var p = new Path(path.start, nextN, path.len+1, n, r);
+        if(nextN.id == destNode.id){
+          console.log('FOUND');
+          return p;
+        }
+        else if(path.nodes.indexOf(nextN) == -1){
+          console.log('SEARCHING'+p+destNode)
+          return this.DFSUndirected(p, destNode);
+        }
+      }
+      for (k in path.end.edgesIn){
+        var nextN = path.end.edgesIn[k].end;
+        var n = path.nodes.slice(0);
+        var r = path.relationships.slice(0);
+        n.push(nextN);
+        r.push(path.end.edgesIn[k]);
+        var p = new Path(path.start, nextN, path.len+1, n, r);
+        if(nextN.id == destNode.id){
+          console.log('FOUND');
+          return p;
+        }
+        else if(path.nodes.indexOf(nextN) == -1){
+          console.log('SEARCHING'+p+destNode)
+          return this.DFSUndirected(p, destNode);
+        }
+      }
+      console.log('DFS was unsuccessful');
+      return -1; 
+    }
+
+  Graph.prototype.BFS = function(path, destNode) {
+    // todo
+  }
+
+  Graph.prototype.shortestPath = function(prev, destNode) {
+    // todo
   }
 
   Graph.prototype.getNodeById = Graph.prototype.getNode = function(id) {
@@ -316,7 +476,8 @@ Graph = (function() {
   }
 
   Graph.prototype.queryNodeIndex = function (index, query, cb) {
-    // requires Lucene query syntax
+    cb(evaluateIndex(index, query));
+    return evaluateIndex(index, query);
   }
 
   Graph.prototype.getRelationshipById = function (id, cb) {
@@ -345,7 +506,7 @@ Graph = (function() {
   }
 
   Graph.prototype.queryRelationshipIndex = function (index, query, cb) {
-    // Not happenning, lucene queries and all
+    // todo Not happenning, lucene queries and all
   }
 
   Graph.prototype.getNodeIndexes = function (cb) {
@@ -407,11 +568,13 @@ Graph = (function() {
   }
 
   Graph.prototype.query = function (query, params, cb) {
+    // cypher
     // params defaults to {}
     // todo
   }
 
   Graph.prototype.execute = function (execute, params, cb) {
+    // gremlin
     // not going to be implemented, realistically.
     // params defaults to {}
     // todo

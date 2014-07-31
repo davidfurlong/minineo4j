@@ -2,8 +2,12 @@
 <head>
 <script src="http://code.jquery.com/jquery-1.11.1.min.js"></script>
 <script src="lucene-query-parser.js"></script>
+<script src="proximitySearch.js"></script>
+<script src="rangeSearch.js"></script>
+<script src="lucene-to-function-calls.js"></script>
 <script src="graphdatabase.js"></script>
-<script src="minineo4j.js"></script>
+
+<!-- <script src="minineo4j.js"></script> -->
 </head>
 <body>
 <script>
@@ -22,7 +26,8 @@ g.getNodeById(2).index(window.y, "sweet", "value", function(){return;});
 g.getNodeById(3).index(window.y, "sweet", "value", function(){return;});
 g.getNodeById(4).index(window.y, "sweet", "value", function(){return;});
 
-console.log(x);
+g.DFS(new Path(david, david, 0, [david], []), jacob);
+
 function showG(x){
 	$('body').html('');
 	var s = "<b>Nodes:</b><br/>";
@@ -51,8 +56,9 @@ function showG(x){
 	}
 	$('body').append(s);
 }
-var results = LuceneParser.parse('title:"The Right Way" AND text:go');
-console.log(results);
+var results = LuceneParser.parse('name:David');
+
+g.queryNodeIndex(g._nodeindexes[0], results);
 </script>
 </body>
 </html>
